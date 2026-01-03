@@ -408,14 +408,14 @@ import { useEffect, useRef, useState } from "react";
 const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
 export default function App() {
-  const localVideo = useRef();
   const socketRef = useRef();
   const peersRef = useRef({});
-  const streamRef = useRef();
+  const localStreamRef = useRef();
+  const localVideoRef = useRef();
 
   const [roomId, setRoomId] = useState("");
   const [joined, setJoined] = useState(false);
-  const [remoteStreams, setRemoteStreams] = useState([]);
+  const [remotes, setRemotes] = useState([]);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
 
@@ -425,12 +425,14 @@ export default function App() {
     socketRef.current.onmessage = async (e) => {
       const { type, payload } = JSON.parse(e.data);
 
+      // NEW USER RECEIVES EXISTING USERS → ANSWER ONLY
       if (type === "existing-users") {
         payload.forEach(createPeer);
       }
 
+      // EXISTING USERS CREATE OFFER FOR NEW USER
       if (type === "user-joined") {
-        createPeer(payload);
+        createOffer(payload);
       }
 
       if (type === "signal") {
@@ -454,7 +456,7 @@ export default function App() {
       if (type === "user-left") {
         peersRef.current[payload]?.close();
         delete peersRef.current[payload];
-        setRemoteStreams(s => s.filter(v => v.id !== payload));
+        setRemotes((r) => r.filter((x) => x.id !== payload));
       }
     };
 
@@ -462,33 +464,35 @@ export default function App() {
   }, []);
 
   const joinRoom = async () => {
-    streamRef.current = await navigator.mediaDevices.getUserMedia({
+    localStreamRef.current = await navigator.mediaDevices.getUserMedia({
       video: true,
-      audio: true
+      audio: true,
     });
 
-    localVideo.current.srcObject = streamRef.current;
+    localVideoRef.current.srcObject = localStreamRef.current;
 
-    socketRef.current.send(JSON.stringify({
-      type: "join",
-      roomId
-    }));
+    socketRef.current.send(
+      JSON.stringify({ type: "join", roomId })
+    );
 
     setJoined(true);
   };
 
-  const createPeer = async (id) => {
+  const createPeer = (id) => {
+    if (peersRef.current[id]) return peersRef.current[id];
+
     const peer = new RTCPeerConnection(ICE);
 
-    streamRef.current.getTracks().forEach(track =>
-      peer.addTrack(track, streamRef.current)
+    localStreamRef.current.getTracks().forEach((track) =>
+      peer.addTrack(track, localStreamRef.current)
     );
 
     peer.ontrack = (e) => {
-      setRemoteStreams(prev => {
-        if (prev.find(p => p.id === id)) return prev;
-        return [...prev, { id, stream: e.streams[0] }];
-      });
+      setRemotes((prev) =>
+        prev.find((p) => p.id === id)
+          ? prev
+          : [...prev, { id, stream: e.streams[0] }]
+      );
     };
 
     peer.onicecandidate = (e) => {
@@ -496,33 +500,39 @@ export default function App() {
     };
 
     peersRef.current[id] = peer;
+    return peer;
+  };
 
+  const createOffer = async (id) => {
+    const peer = createPeer(id);
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
     sendSignal(id, offer);
   };
 
   const sendSignal = (target, data) => {
-    socketRef.current.send(JSON.stringify({
-      type: "signal",
-      roomId,
-      payload: { target, data }
-    }));
+    socketRef.current.send(
+      JSON.stringify({
+        type: "signal",
+        roomId,
+        payload: { target, data },
+      })
+    );
   };
 
   const toggleMute = () => {
-    streamRef.current.getAudioTracks()[0].enabled = muted;
+    localStreamRef.current.getAudioTracks()[0].enabled = muted;
     setMuted(!muted);
   };
 
   const toggleCamera = () => {
-    streamRef.current.getVideoTracks()[0].enabled = cameraOff;
+    localStreamRef.current.getVideoTracks()[0].enabled = cameraOff;
     setCameraOff(!cameraOff);
   };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4">
-      <h1 className="text-2xl font-bold text-center mb-4">
+      <h1 className="text-xl font-bold text-center mb-4">
         Group Video Call
       </h1>
 
@@ -532,7 +542,7 @@ export default function App() {
             className="px-3 py-2 text-black rounded"
             placeholder="Room ID"
             value={roomId}
-            onChange={e => setRoomId(e.target.value)}
+            onChange={(e) => setRoomId(e.target.value)}
           />
           <button
             onClick={joinRoom}
@@ -544,13 +554,19 @@ export default function App() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-        <video ref={localVideo} autoPlay muted className="rounded border" />
-        {remoteStreams.map(({ id, stream }) => (
+        <video
+          ref={localVideoRef}
+          autoPlay
+          muted
+          className="rounded border"
+        />
+
+        {remotes.map(({ id, stream }) => (
           <video
             key={id}
             autoPlay
             className="rounded border"
-            ref={v => v && (v.srcObject = stream)}
+            ref={(v) => v && (v.srcObject = stream)}
           />
         ))}
       </div>
@@ -560,7 +576,10 @@ export default function App() {
           <button onClick={toggleMute} className="bg-gray-700 px-4 py-2 rounded">
             {muted ? "Unmute" : "Mute"}
           </button>
-          <button onClick={toggleCamera} className="bg-gray-700 px-4 py-2 rounded">
+          <button
+            onClick={toggleCamera}
+            className="bg-gray-700 px-4 py-2 rounded"
+          >
             {cameraOff ? "Camera On" : "Camera Off"}
           </button>
         </div>
