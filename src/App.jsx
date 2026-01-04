@@ -682,29 +682,24 @@ export default function App() {
 
   const joinCall = async () => {
     if (!name || !passcode) {
-      alert("Enter name and passcode");
+      alert("Enter name & passcode");
       return;
     }
 
-    // IMPORTANT: user interaction enables audio
     localStream.current = await navigator.mediaDevices.getUserMedia({
       video: true,
       audio: true
     });
 
     setVideos([
-      { id: "me", name, stream: localStream.current }
+      { id: socket.id, name, stream: localStream.current, muted: true }
     ]);
 
-    socket.emit("join-room", {
-      roomId: passcode,
-      name
-    });
-
+    socket.emit("join-room", { roomId: passcode, name });
     setJoined(true);
   };
 
-  const createPeer = (userId, userName) => {
+  const createPeer = (peerId, peerName, isInitiator) => {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     });
@@ -713,62 +708,70 @@ export default function App() {
       pc.addTrack(track, localStream.current)
     );
 
-    pc.ontrack = (e) => {
-      setVideos(v =>
-        v.some(x => x.id === userId)
-          ? v
-          : [...v, { id: userId, name: userName, stream: e.streams[0] }]
-      );
+    pc.ontrack = (event) => {
+      setVideos(v => {
+        if (v.find(x => x.id === peerId)) return v;
+        return [
+          ...v,
+          {
+            id: peerId,
+            name: peerName,
+            stream: event.streams[0],
+            muted: false
+          }
+        ];
+      });
     };
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("ice-candidate", {
-          to: userId,
+          to: peerId,
           candidate: e.candidate
         });
       }
     };
 
-    peers.current[userId] = pc;
+    peers.current[peerId] = pc;
+
+    if (isInitiator) {
+      pc.createOffer().then(offer => {
+        pc.setLocalDescription(offer);
+        socket.emit("offer", { to: peerId, offer });
+      });
+    }
+
     return pc;
   };
 
   useEffect(() => {
-    socket.on("all-users", users => {
-      users.forEach(async u => {
-        if (u.id === socket.id) return;
-        const pc = createPeer(u.id, u.name);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit("offer", { to: u.id, offer });
+    socket.on("all-users", (users) => {
+      // NEW USER creates offers to existing users
+      users.forEach(u => {
+        if (u.id !== socket.id) {
+          createPeer(u.id, u.name, true);
+        }
       });
     });
 
-    socket.on("user-joined", async ({ id, name }) => {
-      const pc = createPeer(id, name);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit("offer", { to: id, offer });
-    });
-
     socket.on("offer", async ({ from, offer, name }) => {
-      const pc = createPeer(from, name);
+      // EXISTING user answers
+      const pc = createPeer(from, name, false);
       await pc.setRemoteDescription(offer);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit("answer", { to: from, answer });
     });
 
-    socket.on("answer", ({ from, answer }) => {
-      peers.current[from]?.setRemoteDescription(answer);
+    socket.on("answer", async ({ from, answer }) => {
+      await peers.current[from].setRemoteDescription(answer);
     });
 
     socket.on("ice-candidate", ({ from, candidate }) => {
       peers.current[from]?.addIceCandidate(candidate);
     });
 
-    socket.on("user-left", id => {
+    socket.on("user-left", (id) => {
       peers.current[id]?.close();
       delete peers.current[id];
       setVideos(v => v.filter(x => x.id !== id));
@@ -783,25 +786,32 @@ export default function App() {
         <br /><br />
         <input placeholder="Passcode" onChange={e => setPasscode(e.target.value)} />
         <br /><br />
-        <button onClick={joinCall}>Join Call</button>
+        <button onClick={joinCall}>Join</button>
       </div>
     );
   }
 
   return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, 250px)",
-      gap: 20,
-      padding: 20
-    }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, 250px)",
+        gap: 20,
+        padding: 20
+      }}
+    >
       {videos.map(v => (
         <div key={v.id}>
           <video
+            ref={el => {
+              if (el) {
+                el.srcObject = v.stream;
+                el.play().catch(() => {});
+              }
+            }}
             autoPlay
             playsInline
-            muted={v.id === "me"}  // IMPORTANT
-            ref={el => el && (el.srcObject = v.stream)}
+            muted={v.muted}
             style={{ width: "100%", borderRadius: 10 }}
           />
           <p style={{ textAlign: "center" }}>{v.name}</p>
