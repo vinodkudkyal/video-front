@@ -403,187 +403,261 @@
 
 
 
-import { useEffect, useRef, useState } from "react";
+// import { useEffect, useRef, useState } from "react";
 
-const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+// const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+// export default function App() {
+//   const socketRef = useRef();
+//   const peersRef = useRef({});
+//   const localStreamRef = useRef();
+//   const localVideoRef = useRef();
+
+//   const [roomId, setRoomId] = useState("");
+//   const [joined, setJoined] = useState(false);
+//   const [remotes, setRemotes] = useState([]);
+//   const [muted, setMuted] = useState(false);
+//   const [cameraOff, setCameraOff] = useState(false);
+
+//   useEffect(() => {
+//     socketRef.current = new WebSocket(import.meta.env.VITE_WS_URL);
+
+//     socketRef.current.onmessage = async (e) => {
+//       const { type, payload } = JSON.parse(e.data);
+
+//       // NEW USER RECEIVES EXISTING USERS → ANSWER ONLY
+//       if (type === "existing-users") {
+//         payload.forEach(createPeer);
+//       }
+
+//       // EXISTING USERS CREATE OFFER FOR NEW USER
+//       if (type === "user-joined") {
+//         createOffer(payload);
+//       }
+
+//       if (type === "signal") {
+//         const { from, data } = payload;
+//         const peer = peersRef.current[from];
+
+//         if (data.sdp) {
+//           await peer.setRemoteDescription(data);
+//           if (data.type === "offer") {
+//             const answer = await peer.createAnswer();
+//             await peer.setLocalDescription(answer);
+//             sendSignal(from, answer);
+//           }
+//         }
+
+//         if (data.candidate) {
+//           await peer.addIceCandidate(data.candidate);
+//         }
+//       }
+
+//       if (type === "user-left") {
+//         peersRef.current[payload]?.close();
+//         delete peersRef.current[payload];
+//         setRemotes((r) => r.filter((x) => x.id !== payload));
+//       }
+//     };
+
+//     return () => socketRef.current?.close();
+//   }, []);
+
+//   const joinRoom = async () => {
+//     localStreamRef.current = await navigator.mediaDevices.getUserMedia({
+//       video: true,
+//       audio: true,
+//     });
+
+//     localVideoRef.current.srcObject = localStreamRef.current;
+
+//     socketRef.current.send(
+//       JSON.stringify({ type: "join", roomId })
+//     );
+
+//     setJoined(true);
+//   };
+
+//   const createPeer = (id) => {
+//     if (peersRef.current[id]) return peersRef.current[id];
+
+//     const peer = new RTCPeerConnection(ICE);
+
+//     localStreamRef.current.getTracks().forEach((track) =>
+//       peer.addTrack(track, localStreamRef.current)
+//     );
+
+//     peer.ontrack = (e) => {
+//       setRemotes((prev) =>
+//         prev.find((p) => p.id === id)
+//           ? prev
+//           : [...prev, { id, stream: e.streams[0] }]
+//       );
+//     };
+
+//     peer.onicecandidate = (e) => {
+//       if (e.candidate) sendSignal(id, { candidate: e.candidate });
+//     };
+
+//     peersRef.current[id] = peer;
+//     return peer;
+//   };
+
+//   const createOffer = async (id) => {
+//     const peer = createPeer(id);
+//     const offer = await peer.createOffer();
+//     await peer.setLocalDescription(offer);
+//     sendSignal(id, offer);
+//   };
+
+//   const sendSignal = (target, data) => {
+//     socketRef.current.send(
+//       JSON.stringify({
+//         type: "signal",
+//         roomId,
+//         payload: { target, data },
+//       })
+//     );
+//   };
+
+//   const toggleMute = () => {
+//     localStreamRef.current.getAudioTracks()[0].enabled = muted;
+//     setMuted(!muted);
+//   };
+
+//   const toggleCamera = () => {
+//     localStreamRef.current.getVideoTracks()[0].enabled = cameraOff;
+//     setCameraOff(!cameraOff);
+//   };
+
+//   return (
+//     <div className="min-h-screen bg-gray-900 text-white p-4">
+//       <h1 className="text-xl font-bold text-center mb-4">
+//         Group Video Call
+//       </h1>
+
+//       {!joined && (
+//         <div className="flex gap-2 justify-center mb-4">
+//           <input
+//             className="px-3 py-2 text-black rounded"
+//             placeholder="Room ID"
+//             value={roomId}
+//             onChange={(e) => setRoomId(e.target.value)}
+//           />
+//           <button
+//             onClick={joinRoom}
+//             className="bg-blue-600 px-4 py-2 rounded"
+//           >
+//             Join
+//           </button>
+//         </div>
+//       )}
+
+//       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+//         <video
+//           ref={localVideoRef}
+//           autoPlay
+//           muted
+//           className="rounded border"
+//         />
+
+//         {remotes.map(({ id, stream }) => (
+//           <video
+//             key={id}
+//             autoPlay
+//             className="rounded border"
+//             ref={(v) => v && (v.srcObject = stream)}
+//           />
+//         ))}
+//       </div>
+
+//       {joined && (
+//         <div className="flex justify-center gap-4 mt-4">
+//           <button onClick={toggleMute} className="bg-gray-700 px-4 py-2 rounded">
+//             {muted ? "Unmute" : "Mute"}
+//           </button>
+//           <button
+//             onClick={toggleCamera}
+//             className="bg-gray-700 px-4 py-2 rounded"
+//           >
+//             {cameraOff ? "Camera On" : "Camera Off"}
+//           </button>
+//         </div>
+//       )}
+//     </div>
+//   );
+// }
+
+
+
+
+import { useEffect, useRef } from "react";
+import io from "socket.io-client";
+
+const socket = io("https://video-back-r29x.onrender.com");
+
+const ROOM_ID = "demo-room";
 
 export default function App() {
-  const socketRef = useRef();
-  const peersRef = useRef({});
-  const localStreamRef = useRef();
-  const localVideoRef = useRef();
-
-  const [roomId, setRoomId] = useState("");
-  const [joined, setJoined] = useState(false);
-  const [remotes, setRemotes] = useState([]);
-  const [muted, setMuted] = useState(false);
-  const [cameraOff, setCameraOff] = useState(false);
+  const localVideo = useRef();
+  const remoteVideo = useRef();
+  const pc = useRef(null);
 
   useEffect(() => {
-    socketRef.current = new WebSocket(import.meta.env.VITE_WS_URL);
+    socket.emit("join-room", ROOM_ID);
 
-    socketRef.current.onmessage = async (e) => {
-      const { type, payload } = JSON.parse(e.data);
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        localVideo.current.srcObject = stream;
 
-      // NEW USER RECEIVES EXISTING USERS → ANSWER ONLY
-      if (type === "existing-users") {
-        payload.forEach(createPeer);
-      }
+        pc.current = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        });
 
-      // EXISTING USERS CREATE OFFER FOR NEW USER
-      if (type === "user-joined") {
-        createOffer(payload);
-      }
+        stream.getTracks().forEach(track =>
+          pc.current.addTrack(track, stream)
+        );
 
-      if (type === "signal") {
-        const { from, data } = payload;
-        const peer = peersRef.current[from];
+        pc.current.ontrack = (e) => {
+          remoteVideo.current.srcObject = e.streams[0];
+        };
 
-        if (data.sdp) {
-          await peer.setRemoteDescription(data);
-          if (data.type === "offer") {
-            const answer = await peer.createAnswer();
-            await peer.setLocalDescription(answer);
-            sendSignal(from, answer);
+        pc.current.onicecandidate = (e) => {
+          if (e.candidate) {
+            socket.emit("ice-candidate", {
+              roomId: ROOM_ID,
+              candidate: e.candidate
+            });
           }
-        }
+        };
+      });
 
-        if (data.candidate) {
-          await peer.addIceCandidate(data.candidate);
-        }
-      }
-
-      if (type === "user-left") {
-        peersRef.current[payload]?.close();
-        delete peersRef.current[payload];
-        setRemotes((r) => r.filter((x) => x.id !== payload));
-      }
-    };
-
-    return () => socketRef.current?.close();
-  }, []);
-
-  const joinRoom = async () => {
-    localStreamRef.current = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
+    socket.on("user-joined", async () => {
+      const offer = await pc.current.createOffer();
+      await pc.current.setLocalDescription(offer);
+      socket.emit("offer", { roomId: ROOM_ID, offer });
     });
 
-    localVideoRef.current.srcObject = localStreamRef.current;
+    socket.on("offer", async (offer) => {
+      await pc.current.setRemoteDescription(offer);
+      const answer = await pc.current.createAnswer();
+      await pc.current.setLocalDescription(answer);
+      socket.emit("answer", { roomId: ROOM_ID, answer });
+    });
 
-    socketRef.current.send(
-      JSON.stringify({ type: "join", roomId })
-    );
+    socket.on("answer", (answer) => {
+      pc.current.setRemoteDescription(answer);
+    });
 
-    setJoined(true);
-  };
-
-  const createPeer = (id) => {
-    if (peersRef.current[id]) return peersRef.current[id];
-
-    const peer = new RTCPeerConnection(ICE);
-
-    localStreamRef.current.getTracks().forEach((track) =>
-      peer.addTrack(track, localStreamRef.current)
-    );
-
-    peer.ontrack = (e) => {
-      setRemotes((prev) =>
-        prev.find((p) => p.id === id)
-          ? prev
-          : [...prev, { id, stream: e.streams[0] }]
-      );
-    };
-
-    peer.onicecandidate = (e) => {
-      if (e.candidate) sendSignal(id, { candidate: e.candidate });
-    };
-
-    peersRef.current[id] = peer;
-    return peer;
-  };
-
-  const createOffer = async (id) => {
-    const peer = createPeer(id);
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    sendSignal(id, offer);
-  };
-
-  const sendSignal = (target, data) => {
-    socketRef.current.send(
-      JSON.stringify({
-        type: "signal",
-        roomId,
-        payload: { target, data },
-      })
-    );
-  };
-
-  const toggleMute = () => {
-    localStreamRef.current.getAudioTracks()[0].enabled = muted;
-    setMuted(!muted);
-  };
-
-  const toggleCamera = () => {
-    localStreamRef.current.getVideoTracks()[0].enabled = cameraOff;
-    setCameraOff(!cameraOff);
-  };
+    socket.on("ice-candidate", (candidate) => {
+      pc.current.addIceCandidate(candidate);
+    });
+  }, []);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
-      <h1 className="text-xl font-bold text-center mb-4">
-        Group Video Call
-      </h1>
-
-      {!joined && (
-        <div className="flex gap-2 justify-center mb-4">
-          <input
-            className="px-3 py-2 text-black rounded"
-            placeholder="Room ID"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-          />
-          <button
-            onClick={joinRoom}
-            className="bg-blue-600 px-4 py-2 rounded"
-          >
-            Join
-          </button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          className="rounded border"
-        />
-
-        {remotes.map(({ id, stream }) => (
-          <video
-            key={id}
-            autoPlay
-            className="rounded border"
-            ref={(v) => v && (v.srcObject = stream)}
-          />
-        ))}
-      </div>
-
-      {joined && (
-        <div className="flex justify-center gap-4 mt-4">
-          <button onClick={toggleMute} className="bg-gray-700 px-4 py-2 rounded">
-            {muted ? "Unmute" : "Mute"}
-          </button>
-          <button
-            onClick={toggleCamera}
-            className="bg-gray-700 px-4 py-2 rounded"
-          >
-            {cameraOff ? "Camera On" : "Camera Off"}
-          </button>
-        </div>
-      )}
+    <div style={{ display: "flex", gap: 20, padding: 20 }}>
+      <video ref={localVideo} autoPlay muted width="300" />
+      <video ref={remoteVideo} autoPlay width="300" />
     </div>
   );
 }
